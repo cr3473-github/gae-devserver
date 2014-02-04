@@ -68,7 +68,7 @@ class ChannelServiceStub(apiproxy_stub.APIProxyStub):
 
 
 
-  CHANNEL_TIMEOUT_SECONDS = 2
+  CHANNEL_TIMEOUT_SECONDS = 5
 
 
 
