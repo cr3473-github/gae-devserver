@@ -23,6 +23,7 @@ import math
 import time
 import types
 import urllib
+import json
 
 from google.appengine.api import apiproxy_stub_map
 from google.appengine.api import datastore
@@ -30,6 +31,7 @@ from google.appengine.api import datastore_types
 from google.appengine.api import memcache
 from google.appengine.api import users
 from google.appengine.ext import db
+from google.appengine.ext import ndb
 from google.appengine.ext.db import metadata
 
 from google.appengine.tools.devappserver2.admin import admin_request_handler
@@ -309,6 +311,23 @@ class ListType(DataType):
     return 'list'
 
   def input_field(self, name, value, sample_values, back_uri):
+    data_type = DataType.get(value[0])
+    if isinstance(data_type, ReferenceType):
+      html = '['
+      string_value = self.format(value[0]) if value[0] else ''
+      html += '<a href="/datastore/edit/%s?next=%s">%s</a>' % (
+        cgi.escape(string_value, True),
+        urllib.quote_plus(back_uri),
+        cgi.escape(_format_datastore_key(value[0]), True))
+      for i in range(1, len(value)):
+          string_value = self.format(value[i]) if value[i] else ''
+          html += ', <a href="/datastore/edit/%s?next=%s">%s</a>' % (
+            cgi.escape(string_value, True),
+            urllib.quote_plus(back_uri),
+            cgi.escape(_format_datastore_key(value[i]), True))
+      html += ']'
+      return html
+
     string_value = self.format(value) if value else ''
     return cgi.escape(string_value)
 
@@ -532,7 +551,9 @@ for _data_type in _DATA_TYPES.values():
 class DatastoreRequestHandler(admin_request_handler.AdminRequestHandler):
   """A handler that displays information about datastore entities."""
 
+  ENTITIES_PER_PAGE_OPTIONS = [20,50,100,200,500,1000,5000,10000]
   NUM_ENTITIES_PER_PAGE = 20
+
 
   @staticmethod
   def _calculate_writes_for_built_in_indices(entity):
@@ -598,12 +619,13 @@ class DatastoreRequestHandler(admin_request_handler.AdminRequestHandler):
                                 namespace,
                                 order,
                                 start):
-
+    if memcache.get('num_enitities_pre_page') is None:
+        memcache.add('num_enitities_pre_page', 20)
     entities, total_entities = _get_entities(kind,
                                              namespace,
                                              order,
                                              start,
-                                             cls.NUM_ENTITIES_PER_PAGE)
+                                             memcache.get('num_enitities_pre_page'))
 
     property_name_to_value = _property_name_to_value(entities)
 
@@ -643,10 +665,18 @@ class DatastoreRequestHandler(admin_request_handler.AdminRequestHandler):
     datastore_stub = apiproxy_stub_map.apiproxy.GetStub('datastore_v3')
     datastore_stub.Flush()
 
+    if memcache.get('num_enitities_pre_page') is None:
+        memcache.add('num_enitities_pre_page', 20)
+
     kind = self.request.get('kind', None)
     namespace = self.request.get('namespace', '')
     order = self.request.get('order', None)
     message = self.request.get('message', None)
+
+    try:
+      page = int(self.request.get('page', '1'))
+    except ValueError:
+      page = 1
 
     try:
       page = int(self.request.get('page', '1'))
@@ -659,7 +689,7 @@ class DatastoreRequestHandler(admin_request_handler.AdminRequestHandler):
       return
 
     if kind:
-      start = (page-1) * self.NUM_ENTITIES_PER_PAGE
+      start = (page-1) * memcache.get('num_enitities_pre_page')
       headers, template_entities, total_entities = (
           self._get_entity_template_data(
               self.request.uri,
@@ -668,7 +698,7 @@ class DatastoreRequestHandler(admin_request_handler.AdminRequestHandler):
               order,
               start))
       num_pages = int(math.ceil(float(total_entities) /
-                                self.NUM_ENTITIES_PER_PAGE))
+                                memcache.get('num_enitities_pre_page')))
     else:
       start = 0
       headers = []
@@ -695,7 +725,9 @@ class DatastoreRequestHandler(admin_request_handler.AdminRequestHandler):
          'select_namespace_url': select_namespace_url,
          'show_namespace': self.request.get('namespace', None) is not None,
          'start': start,
-         'total_entities': total_entities}))
+         'total_entities': total_entities,
+         'num_entities_per_page': memcache.get('num_enitities_pre_page'),
+         'enitities_per_page_options': self.ENTITIES_PER_PAGE_OPTIONS}))
 
   def post(self):
     """Handle modifying actions and redirect to a GET page."""
@@ -713,6 +745,17 @@ class DatastoreRequestHandler(admin_request_handler.AdminRequestHandler):
       self.redirect(self._construct_url(
           remove=['action:delete_entities'],
           add={'message': '%d entities deleted' % len(entity_keys)}))
+    elif self.request.get('action:delete_all_entities'):
+      ndb.delete_multi(ndb.Query(kind=self.request.get('kind', None)).fetch(keys_only=True))
+
+      self.redirect(self._construct_url(
+          remove=['action:delete_all_entities'],
+          add={'message': 'entities deleted'}))
+    elif self.request.get('action:num_enitities_pre_page'):
+      memcache.set('num_enitities_pre_page', int(self.request.get('action:num_enitities_pre_page')))
+      self.redirect(self._construct_url(
+          remove=['action:num_enitities_pre_page'],
+          add={'message': 'Num of enitities per page changed'}))
     else:
       self.error(404)
 
@@ -761,6 +804,11 @@ class DatastoreEditRequestHandler(admin_request_handler.AdminRequestHandler):
     property_name_to_values = _property_name_to_values(entities)
     fields = []
     for property_name, values in sorted(property_name_to_values.iteritems()):
+      if isinstance(values[0], datastore_types.Blob):
+        try:
+          values[0] = str(json.loads(values[0]))
+        except:
+          pass
       data_type = DataType.get(values[0])
       field = data_type.input_field('%s|%s' % (data_type.name(), property_name),
                                     values[0] if entity_key else None,

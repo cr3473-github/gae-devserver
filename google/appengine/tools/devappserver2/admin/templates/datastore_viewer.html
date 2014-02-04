@@ -132,7 +132,13 @@
           <div class="ae-settings-block">
             <div>
               <input id="delete_button" class="ae-button" name="action:delete_entities" type="submit" value="Delete" />
+              <input id="delete_all_button" class="ae-button" name="action:delete_all_entities" type="submit" value="Delete All" />
               <input id="memcache_flush_button" class="ae-button" type="submit" name="action:flush_memcache" value="Flush Memcache" />
+              <select name="action:num_enitities_pre_page" class="ae-button" id="num_enitities_pre_page" onchange="this.form.submit()">
+              {% for option in enitities_per_page_options %}
+              <option value="{{ option }}"{% if option == num_entities_per_page %} selected="selected"{% endif %}>{{ option }}</option>
+              {% endfor %}
+              </select>
             </div>
           </div>
           <div class="ae-settings-block">
