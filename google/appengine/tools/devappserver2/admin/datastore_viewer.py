@@ -355,7 +355,17 @@ class BoolType(DataType):
     return bool(int(value))
 
 
-class IntType(DataType):
+class NumberType(DataType):
+
+  def input_field(self, name, value, sample_values, back_uri):
+    string_value = self.format(value) if value is not None else ''
+    return super(NumberType, self).input_field(name,
+                                               string_value,
+                                               sample_values,
+                                               back_uri)
+
+
+class IntType(NumberType):
   PLACEHOLDER = '42'
 
   def input_field_size(self):
@@ -368,7 +378,7 @@ class IntType(DataType):
     return int(value)
 
 
-class FloatType(DataType):
+class FloatType(NumberType):
   PLACEHOLDER = '3.14159'
 
   def name(self):
