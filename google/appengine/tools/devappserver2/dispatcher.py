@@ -714,8 +714,8 @@ class Dispatcher(request_info.Dispatcher):
             in DISPATCH_AH_URL_PATH_PREFIX_WHITELIST)):
       return True
     else:
-      logging.warning('Skipping dispatch.yaml rules because %s is not a '
-                      'dispatchable path.', path)
+      if '/_ah/channel/dev' not in path:
+        logging.warning('Skipping dispatch.yaml rules because %s is not a dispatchable path.', path)
       return False
 
   def _module_for_request(self, path):
